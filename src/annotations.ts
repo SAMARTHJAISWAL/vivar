@@ -21,11 +21,14 @@ interface Hit {
 }
 
 export function locateFeatures(cam: Camera, lensing: boolean, cols = 56, rows = 34): FeaturePositions {
-  const out: FeaturePositions = { shadow: [0, 0] };
+  const out: FeaturePositions = {};
   const dist = length(cam.pos);
 
-  // Photon ring: the critical curve, drawn at 45° up and to the right.
+  // Shadow: label the upper half of the dark disc (the lower half is usually behind the disk).
   const alpha = lensing ? shadowAngularRadius(dist) : Math.asin(1 / dist);
+  out.shadow = [0, (0.5 * Math.tan(alpha)) / cam.tanY];
+
+  // Photon ring: the critical curve, labelled at 45° up and to the right.
   const diag = normalize(add(cam.right, cam.up));
   const ringDir = normalize(add(scale(cam.forward, Math.cos(alpha)), scale(diag, Math.sin(alpha))));
   const ring = directionToNdc(cam, ringDir);
@@ -72,10 +75,12 @@ export function locateFeatures(cam: Camera, lensing: boolean, cols = 56, rows = 
   const direct = hits.filter((h) => h.k === 0);
   if (direct.length > 0) {
     out.doppler = direct.reduce((a, b) => (b.g > a.g ? b : a)).ndc;
-    // ISCO: the inner edge of the direct image, nearest the bottom centre.
+    // ISCO: the inner edge of the near side's direct image, a little left of
+    // centre so it does not sit on top of the shadow label.
     const inner = direct.filter((h) => h.r < DISK_INNER * 1.25 && !h.far);
     const pool = inner.length > 0 ? inner : direct;
-    out.isco = pool.reduce((a, b) => (Math.abs(b.ndc[0]) + 0.3 * b.r < Math.abs(a.ndc[0]) + 0.3 * a.r ? b : a)).ndc;
+    const score = (h: Hit) => Math.abs(h.ndc[0] + 0.18) + 0.3 * h.r;
+    out.isco = pool.reduce((a, b) => (score(b) < score(a) ? b : a)).ndc;
   }
   return out;
 }

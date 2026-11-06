@@ -2,7 +2,7 @@
  * Keeps the GLSL and the TypeScript physics in lock-step:
  *  - shared constants live only in src/physics/constants.ts and are injected;
  *  - the shader's integrator functions (binetAccel, rk4, stepSize) are pulled
- *    out of the .frag source, translated mechanically to JavaScript and run
+ *    out of the .glsl source, translated mechanically to JavaScript and run
  *    against the TypeScript port on the same inputs.
  */
 import { readFileSync } from 'node:fs';
@@ -12,8 +12,8 @@ import { glslDefines, injectConstants, SHADER_CONSTANTS, SHADER_VEC3_CONSTANTS, 
 import { binetAccel, rk4, stepSize } from '../src/physics/geodesic';
 
 const read = (name: string) => readFileSync(fileURLToPath(new URL(`../src/shaders/${name}`, import.meta.url)), 'utf8');
-const frag = read('blackhole.frag');
-const composite = read('composite.frag');
+const frag = read('blackhole.frag.glsl');
+const composite = read('composite.frag.glsl');
 
 describe('shared constants', () => {
   it('every shared constant is emitted as a #define or const', () => {
@@ -31,8 +31,8 @@ describe('shared constants', () => {
   });
 
   for (const [name, src] of [
-    ['blackhole.frag', frag],
-    ['composite.frag', composite],
+    ['blackhole.frag.glsl', frag],
+    ['composite.frag.glsl', composite],
   ] as const) {
     it(`${name} takes constants only from the injected block`, () => {
       expect(src).toContain('//#include constants');

@@ -15,8 +15,9 @@ export interface Camera {
   tanY: number;
 }
 
-/** Field of view across the shorter screen dimension, degrees. */
+/** Field of view across the shorter screen dimension, degrees (wider on portrait screens). */
 export const FOV_DEG = 52;
+export const FOV_PORTRAIT_DEG = 66;
 
 const DEG = Math.PI / 180;
 
@@ -32,7 +33,7 @@ export function makeCamera(
   inclinationDeg: number,
   distance: number,
   aspect: number,
-  fovDeg = FOV_DEG,
+  fovDeg = aspect >= 1 ? FOV_DEG : FOV_PORTRAIT_DEG,
 ): Camera {
   const pos = cameraPosition(azimuthDeg, inclinationDeg, distance);
   const forward = normalize(scale(pos, -1));

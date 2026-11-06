@@ -1,19 +1,19 @@
 /**
  * Frame pipeline:
- *   1. blackhole.frag → scene target (HDR, at `renderScale` × canvas pixels)
+ *   1. blackhole.frag.glsl → scene target (HDR, at `renderScale` × canvas pixels)
  *   2. bloom: prefiltered 13-tap downsample chain, tent upsample back up
- *   3. composite.frag → canvas (exposure, ACES, sRGB, dither, overlays)
+ *   3. composite.frag.glsl → canvas (exposure, ACES, sRGB, dither, overlays)
  */
 import { buildBlackbodyLUT } from './physics/blackbody';
 import { injectConstants } from './physics/constants';
 import type { Camera } from './physics/camera';
 import type { QualitySettings } from './quality';
 import { createLutTexture, createTarget, deleteTarget, GpuTimer, pickTargetFormat, Program, type Target, type TargetFormat } from './gl/gl';
-import vertSrc from './shaders/fullscreen.vert?raw';
-import sceneSrc from './shaders/blackhole.frag?raw';
-import downSrc from './shaders/bloom_down.frag?raw';
-import upSrc from './shaders/bloom_up.frag?raw';
-import compositeSrc from './shaders/composite.frag?raw';
+import vertSrc from './shaders/fullscreen.vert.glsl?raw';
+import sceneSrc from './shaders/blackhole.frag.glsl?raw';
+import downSrc from './shaders/bloom_down.frag.glsl?raw';
+import upSrc from './shaders/bloom_up.frag.glsl?raw';
+import compositeSrc from './shaders/composite.frag.glsl?raw';
 
 export interface FrameParams {
   camera: Camera;

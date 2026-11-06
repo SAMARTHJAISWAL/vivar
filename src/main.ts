@@ -1,10 +1,10 @@
 import './style.css';
 import { AdaptiveScale } from './adaptive';
 import { locateFeatures, type FeatureId } from './annotations';
-import { makeCamera, shadowAngularRadius } from './physics/camera';
+import { makeCamera, shadowAngularRadius, type Camera } from './physics/camera';
 import { CAM_DIST_MAX, CAM_DIST_MIN, GALAXY_DIR, TIME_SCALE } from './physics/constants';
 import { QUALITY_SETTINGS } from './quality';
-import { Renderer } from './renderer';
+import { Renderer, type FrameParams } from './renderer';
 import {
   decodeDisplay,
   decodeState,
@@ -25,7 +25,11 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const display = decodeDisplay(location.hash);
-let state: ViewState = decodeState(location.hash, defaultState(reducedMotion));
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+const base = defaultState(reducedMotion);
+// Phones and tablets start at medium quality; the adaptive scaler does the rest.
+if (coarsePointer) base.quality = 'medium';
+let state: ViewState = decodeState(location.hash, base);
 if (display.hideUi) document.body.classList.add('no-ui');
 
 const canvas = $<HTMLCanvasElement>('view');
@@ -58,6 +62,8 @@ function start(renderer: Renderer): void {
   let raf = 0;
   let dirty = true;
   let dragging = false;
+  /** Fixed render scale for captures and benchmarks; null = adaptive. */
+  let lockedScale: number | null = null;
   let fly: { t0: number; dur: number; from: [number, number, number]; to: [number, number, number] } | null = null;
 
   // Stats exposed for the HUD and for automated checks.
@@ -331,6 +337,24 @@ function start(renderer: Renderer): void {
   let fpsFrames = 0;
   let fpsT0 = performance.now();
 
+  function frameParams(camera: Camera): FrameParams {
+    return {
+      camera,
+      quality,
+      time: diskTime,
+      temperature: state.temperature,
+      exposureEv: state.exposure,
+      doppler: state.doppler,
+      gravRedshift: state.gravRedshift,
+      lensing: state.lensing,
+      disk: state.disk,
+      guides: state.guides,
+      split: state.compare && state.lensing ? 0 : null,
+      shadowAngle: state.guides ? (state.lensing ? shadowAngularRadius(state.distance) : Math.asin(1 / state.distance)) : null,
+      debug: display.debug,
+    };
+  }
+
   function frame(now: number): void {
     raf = requestAnimationFrame(frame);
     const frameMs = now - lastFrame;
@@ -365,24 +389,10 @@ function start(renderer: Renderer): void {
     const cw = Math.round(window.innerWidth * dpr);
     const ch = Math.round(window.innerHeight * dpr);
     // Only feed the controller frames that were actually rendered back to back.
-    const scale = frameMs < 250 ? adaptive.update(frameMs, gpuMs, now) : adaptive.scale;
+    const scale = lockedScale ?? (frameMs < 250 ? adaptive.update(frameMs, now) : adaptive.scale);
     renderer.resize(cw, ch, scale);
     const camera = makeCamera(state.azimuth, state.inclination, state.distance, cw / ch);
-    renderer.render({
-      camera,
-      quality,
-      time: diskTime,
-      temperature: state.temperature,
-      exposureEv: state.exposure,
-      doppler: state.doppler,
-      gravRedshift: state.gravRedshift,
-      lensing: state.lensing,
-      disk: state.disk,
-      guides: state.guides,
-      split: state.compare && state.lensing ? 0 : null,
-      shadowAngle: state.guides ? (state.lensing ? shadowAngularRadius(state.distance) : Math.asin(1 / state.distance)) : null,
-      debug: display.debug,
-    });
+    renderer.render(frameParams(camera));
     dirty = false;
 
     stats.frames++;
@@ -405,6 +415,7 @@ function start(renderer: Renderer): void {
   function resume(): void {
     cancelAnimationFrame(raf);
     lastFrame = performance.now();
+    adaptive.warmUp(lastFrame);
     fpsT0 = lastFrame;
     fpsFrames = 0;
     dirty = true;
@@ -437,6 +448,32 @@ function start(renderer: Renderer): void {
       },
       setTime(t: number) {
         diskTime = t;
+        dirty = true;
+      },
+      redraw() {
+        dirty = true;
+      },
+      /**
+       * Render `n` frames back to back at the current size, outside the
+       * display's vsync, and return the mean milliseconds per frame. A 1-pixel
+       * readback after the loop waits for the GPU to finish.
+       */
+      bench(n = 30): number {
+        const gl = renderer.gl;
+        const camera = makeCamera(state.azimuth, state.inclination, state.distance, canvas.width / canvas.height);
+        const px = new Uint8Array(4);
+        renderer.render(frameParams(camera));
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        const t0 = performance.now();
+        for (let i = 0; i < n; i++) {
+          diskTime += 0.1;
+          renderer.render(frameParams(camera));
+        }
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        return (performance.now() - t0) / n;
+      },
+      lockScale(s: number | null) {
+        lockedScale = s;
         dirty = true;
       },
     },

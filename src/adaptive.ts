@@ -1,12 +1,16 @@
 /**
  * Adaptive render-resolution controller.
  *
- * Shading cost is proportional to the number of pixels, i.e. to scale². With
- * a GPU timer the controller steers scale directly towards a frame-time
- * budget: scale_new = scale · √(budget / gpuTime), smoothed. Without one it
- * falls back to requestAnimationFrame intervals, which saturate at the display
- * refresh, so it backs off when frames are slow and probes upwards slowly
- * when they are consistently on time, remembering the scale that last failed.
+ * The signal is the interval between requestAnimationFrame callbacks, i.e.
+ * whether frames are actually arriving on time. When the smoothed interval
+ * goes above ~18.2 ms (below ~55 fps) the scale drops in proportion to the
+ * overrun (cost ∝ pixels ∝ scale²). While frames are on time it probes
+ * upwards by 5% every 1.5 s, but stays just below the last scale that was too
+ * slow until that memory expires after 15 s, so it does not oscillate.
+ *
+ * GPU timer queries (EXT_disjoint_timer_query_webgl2) are shown in the HUD but
+ * not used here: on ANGLE/Metal they reported 2–3× the real per-frame cost,
+ * which made the controller far too conservative.
  *
  * The output is quantised to steps of 0.05 so render targets are not
  * reallocated every frame.
@@ -15,8 +19,6 @@ export interface AdaptiveOptions {
   min: number;
   max: number;
   initial?: number;
-  /** GPU time budget per frame, ms. */
-  budgetMs?: number;
 }
 
 export class AdaptiveScale {
@@ -28,13 +30,12 @@ export class AdaptiveScale {
   private lastDrop = -1e9;
   private ceiling = Infinity;
   private ceilingSetAt = 0;
-  private readonly budgetMs: number;
+  private warmUntil = -Infinity;
 
   constructor(opts: AdaptiveOptions) {
     this.min = opts.min;
     this.max = opts.max;
     this.raw = Math.min(opts.max, Math.max(opts.min, opts.initial ?? opts.max));
-    this.budgetMs = opts.budgetMs ?? 12;
   }
 
   setBounds(min: number, max: number): void {
@@ -44,25 +45,26 @@ export class AdaptiveScale {
     this.ceiling = Infinity;
   }
 
+  /** Ignore frame timing for a moment, e.g. after start-up or returning to the tab (shader compiles, hitches). */
+  warmUp(nowMs: number, ms = 1000): void {
+    this.warmUntil = nowMs + ms;
+    this.frameEma = 16.7;
+    this.goodSince = -1;
+  }
+
   /** Current scale, quantised. */
   get scale(): number {
     return Math.min(this.max, Math.max(this.min, Math.round(this.raw * 20) / 20));
   }
 
-  /**
-   * Feed one frame. `frameMs` is the interval between animation frames,
-   * `gpuMs` the measured GPU time for a recent frame (or null), `nowMs` a clock.
-   */
-  update(frameMs: number, gpuMs: number | null, nowMs: number): number {
+  /** Feed one rendered frame: `frameMs` is the interval since the previous one, `nowMs` a clock. */
+  update(frameMs: number, nowMs: number): number {
     const clamp = (x: number) => Math.min(this.max, Math.max(this.min, x));
-    if (gpuMs !== null && gpuMs > 0) {
-      const target = this.raw * Math.sqrt(this.budgetMs / gpuMs);
-      this.raw = clamp(this.raw + (target - this.raw) * 0.15);
-      return this.scale;
-    }
-    if (frameMs > 0 && frameMs < 250) this.frameEma += (frameMs - this.frameEma) * 0.1;
+    if (nowMs < this.warmUntil) return this.scale;
+    // A single hitch (GC, compositor) should not cost resolution: cap each sample's pull.
+    if (frameMs > 0) this.frameEma += (Math.min(frameMs, 30) - this.frameEma) * 0.1;
     if (nowMs - this.ceilingSetAt > 15000) this.ceiling = Infinity;
-    if (this.frameEma > 19.5) {
+    if (this.frameEma > 18.2) {
       this.goodSince = -1;
       if (nowMs - this.lastDrop > 400) {
         this.ceiling = this.raw;
@@ -73,7 +75,7 @@ export class AdaptiveScale {
         this.lastDrop = nowMs;
         this.frameEma = 16.7 + (this.frameEma - 16.7) * 0.5;
       }
-    } else if (this.frameEma < 17.6) {
+    } else if (this.frameEma < 17.4) {
       if (this.goodSince < 0) this.goodSince = nowMs;
       if (nowMs - this.goodSince > 1500 && this.raw < this.max) {
         // Probe upwards, but stay just under the last scale that was too slow

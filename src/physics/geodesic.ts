@@ -12,7 +12,7 @@
  *
  *     (du/dφ)² + u² (1 − r_s u) = 1/b²                 (b = L/E, impact parameter)
  *
- * This module mirrors the GLSL in src/shaders/blackhole.frag function for
+ * This module mirrors the GLSL in src/shaders/blackhole.frag.glsl function for
  * function (binetAccel, rk4, stepSize, setupRay, trace loop), so the shader's
  * behaviour can be tested here.
  */
