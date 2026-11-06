@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>vivar · a black hole, ray-traced live</title>
+    <meta
+      name="description"
+      content="A real-time, physically based Schwarzschild black-hole renderer in WebGL2. Every pixel traces a light ray through curved spacetime."
+    />
+    <meta name="theme-color" content="#04050a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:title" content="vivar · कृष्ण विवर" />
+    <meta property="og:description" content="A Schwarzschild black hole ray-traced live in your browser: lensing, photon ring, Doppler beaming and gravitational redshift." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://samarthjaiswal.github.io/vivar/" />
+    <meta property="og:image" content="https://samarthjaiswal.github.io/vivar/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <canvas id="view" tabindex="0" aria-label="Ray-traced black hole. Drag or use the arrow keys to orbit, scroll or press plus and minus to zoom."></canvas>
+
+    <div id="markers" aria-hidden="true"></div>
+
+    <header class="brand">
+      <h1><span class="name">vivar</span> <span class="deva" lang="hi">कृष्ण विवर</span></h1>
+      <p class="tag">A Schwarzschild black hole, ray-traced live</p>
+    </header>
+
+    <div id="hud" aria-live="off">
+      <span id="fps">–</span>
+    </div>
+
+    <aside id="panel" aria-label="Controls">
+      <button id="panel-toggle" class="panel-toggle" aria-expanded="true" aria-controls="panel-body">
+        <span>Controls</span>
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <div id="panel-body" class="panel-body">
+        <section>
+          <h2>View</h2>
+          <div class="presets" role="group" aria-label="Camera presets">
+            <button data-preset="default">Default</button>
+            <button data-preset="edge">Edge-on</button>
+            <button data-preset="face">Face-on</button>
+            <button data-preset="flyin">Fly-in</button>
+            <button data-preset="einstein">Einstein ring</button>
+          </div>
+          <label class="slider">
+            <span class="row"><span>Inclination</span><output id="out-inclination"></output></span>
+            <input type="range" id="inclination" min="1" max="179" step="0.5" />
+          </label>
+          <label class="slider">
+            <span class="row"><span>Distance</span><output id="out-distance"></output></span>
+            <input type="range" id="distance" min="5" max="60" step="0.1" />
+          </label>
+          <label class="toggle"><input type="checkbox" id="autoOrbit" /><span class="sw"></span><span>Auto-orbit</span></label>
+        </section>
+
+        <section>
+          <h2>Physics</h2>
+          <label class="toggle"><input type="checkbox" id="lensing" /><span class="sw"></span><span>Lensing <small>(GR rays; off = straight lines)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="compare" /><span class="sw"></span><span>Split view <small>(GR | straight)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="doppler" /><span class="sw"></span><span>Doppler beaming</span></label>
+          <label class="toggle"><input type="checkbox" id="gravRedshift" /><span class="sw"></span><span>Gravitational redshift</span></label>
+          <label class="toggle"><input type="checkbox" id="disk" /><span class="sw"></span><span>Accretion disk</span></label>
+          <label class="toggle"><input type="checkbox" id="animate" /><span class="sw"></span><span>Animate disk</span></label>
+          <label class="toggle"><input type="checkbox" id="guides" /><span class="sw"></span><span>Guides <small>(horizon, photon sphere, ISCO, b<sub>c</sub>)</small></span></label>
+        </section>
+
+        <section>
+          <h2>Image</h2>
+          <label class="slider">
+            <span class="row"><span>Disk temperature <small>(peak)</small></span><output id="out-temperature"></output></span>
+            <input type="range" id="temperature" min="2000" max="20000" step="100" />
+          </label>
+          <label class="slider">
+            <span class="row"><span>Exposure</span><output id="out-exposure"></output></span>
+            <input type="range" id="exposure" min="-3" max="3" step="0.05" />
+          </label>
+          <fieldset class="segmented">
+            <legend>Quality</legend>
+            <label><input type="radio" name="quality" value="low" /><span>Low</span></label>
+            <label><input type="radio" name="quality" value="medium" /><span>Med</span></label>
+            <label><input type="radio" name="quality" value="high" /><span>High</span></label>
+            <label><input type="radio" name="quality" value="ultra" /><span>Ultra</span></label>
+          </fieldset>
+        </section>
+
+        <div class="actions">
+          <button id="explain" class="primary" aria-haspopup="dialog">What am I looking at?</button>
+          <button id="share">Copy link</button>
+        </div>
+        <p class="foot">
+          <a href="https://github.com/SAMARTHJAISWAL/vivar" target="_blank" rel="noopener">Source &amp; physics notes</a>
+          · drag to orbit · scroll to zoom
+        </p>
+      </div>
+    </aside>
+
+    <div id="explainer" class="explainer" role="dialog" aria-modal="false" aria-labelledby="explainer-title" hidden>
+      <div class="explainer-head">
+        <h2 id="explainer-title">What am I looking at?</h2>
+        <button id="explainer-close" class="icon" aria-label="Close explanation">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+        </button>
+      </div>
+      <ol>
+        <li data-feature="shadow">
+          <b>The shadow.</b> Light aimed inside a critical impact parameter
+          b<sub>c</sub> = (3√3/2) r<sub>s</sub> ≈ 2.6 r<sub>s</sub> spirals into the horizon. The dark disc is
+          2.6× wider than the horizon itself because gravity bends rays into it.
+        </li>
+        <li data-feature="ring">
+          <b>The photon ring.</b> Rays that just miss b<sub>c</sub> loop around the hole once or more before escaping.
+          Each loop squeezes another, thinner image of the whole sky and disk into this bright edge.
+        </li>
+        <li data-feature="over">
+          <b>The far side of the disk, over the top.</b> The disk is flat and thin. Light from the part behind the hole
+          is bent up over it, so you see the back of the disk as an arch above the shadow.
+        </li>
+        <li data-feature="under">
+          <b>The underside, below.</b> Light from the far side that passes <i>under</i> the hole shows the bottom face of the
+          disk as a thinner arc hugging the shadow from below. Rays that cross the disk plane more than once add up here.
+        </li>
+        <li data-feature="doppler">
+          <b>Doppler beaming.</b> Gas near the inner edge orbits at up to half the speed of light. The side moving towards you
+          is blueshifted and beamed (intensity ∝ g⁴), the receding side is dimmed and reddened. Toggle it to compare.
+        </li>
+        <li data-feature="isco">
+          <b>The ISCO.</b> Below 3 r<sub>s</sub> no stable circular orbit exists, so the disk ends there and gas plunges in.
+          Light from the inner disk is also redshifted by gravity: it climbs out of a deep potential well.
+        </li>
+      </ol>
+      <p class="note">Numbers are placed by tracing the same rays on the CPU. Turn on <i>Guides</i> to see the horizon, photon sphere and ISCO circles, and the predicted shadow edge (dashed).</p>
+    </div>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <div id="fallback" class="fallback" hidden>
+      <div>
+        <h2>WebGL2 is not available</h2>
+        <p>vivar traces light rays in a WebGL2 fragment shader, and this browser or device did not provide a WebGL2 context. Here is a still from the renderer instead.</p>
+        <img src="/fallback.jpg" alt="A still render of the black hole: a dark shadow surrounded by a thin bright ring and a glowing, lensed accretion disk." width="1200" height="675" />
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
