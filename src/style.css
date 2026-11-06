@@ -634,8 +634,9 @@ input[type='range']::-moz-range-thumb {
     bottom: auto;
   }
   #hint {
-    top: 38%;
-    bottom: auto;
+    /* Just above the collapsed Controls bar, clear of the black hole. */
+    top: auto;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 62px);
   }
   .explainer {
     top: 70px;
