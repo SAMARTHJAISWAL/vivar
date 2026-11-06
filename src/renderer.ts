@@ -5,8 +5,10 @@
  *   3. composite.frag.glsl → canvas (exposure, ACES, sRGB, dither, overlays)
  */
 import { buildBlackbodyLUT } from './physics/blackbody';
-import { injectConstants } from './physics/constants';
+import { DISK_PEAK_RADIUS, injectConstants, R_ISCO } from './physics/constants';
 import type { Camera } from './physics/camera';
+import { horizonRadius, iscoRadius, photonOrbitRadii, spinLength, type KerrCamera } from './physics/kerr';
+import { diskFluxShapeFor } from './physics/redshift';
 import type { QualitySettings } from './quality';
 import { createLutTexture, createTarget, deleteTarget, GpuTimer, pickTargetFormat, Program, type Target, type TargetFormat } from './gl/gl';
 import vertSrc from './shaders/fullscreen.vert.glsl?raw';
@@ -30,8 +32,22 @@ export interface FrameParams {
   split: number | null;
   /** Angular radius of the predicted shadow edge to draw, or null. */
   shadowAngle: number | null;
+  /** Predicted (non-circular) shadow edge for a spinning hole, or null. */
+  shadowCurve: ShadowOverlay | null;
   debug: boolean;
+  /** Dimensionless spin χ = a/M. */
+  spin: number;
+  /** Static-observer tetrad for the Kerr tracer; required when spin > 0. */
+  kerr: KerrCamera | null;
 }
+
+/** A star-shaped closed curve in canvas pixels: radius at CURVE_SAMPLES equally spaced angles. */
+export interface ShadowOverlay {
+  center: [number, number];
+  radii: number[];
+}
+
+export const CURVE_SAMPLES = 96;
 
 const BLOOM_LEVELS = 6;
 const LDR_SCALE = 8;
@@ -44,6 +60,7 @@ export class Renderer {
   readonly timer: GpuTimer;
   private readonly fmt: TargetFormat;
   private readonly scene: Program;
+  private sceneKerr: Program | null = null;
   private readonly down: Program;
   private readonly up: Program;
   private readonly composite: Program;
@@ -123,6 +140,27 @@ export class Renderer {
     this.gl.drawArrays(this.gl.TRIANGLES, 0, 3);
   }
 
+  /** False once the Kerr shader has failed to compile; spin is then ignored. */
+  kerrAvailable = true;
+
+  /** The Kerr variant of the scene shader, compiled on first use; null if it cannot be built. */
+  private kerrProgram(): Program | null {
+    if (!this.sceneKerr && this.kerrAvailable) {
+      try {
+        this.sceneKerr = new Program(this.gl, vertSrc, injectConstants(sceneSrc, { kerr: true }), 'blackhole (Kerr)');
+      } catch (err) {
+        this.kerrAvailable = false;
+        console.warn('vivar: the Kerr shader failed to compile; spin is disabled', err);
+      }
+    }
+    return this.sceneKerr;
+  }
+
+  /** Compile the Kerr shader ahead of time (e.g. while idle), so the first spin change does not stall. */
+  warmKerr(): boolean {
+    return this.kerrProgram() !== null;
+  }
+
   render(p: FrameParams): void {
     const gl = this.gl;
     const scene = this.sceneTarget;
@@ -132,19 +170,45 @@ export class Renderer {
     gl.disable(gl.BLEND);
     this.timer.begin();
 
+    const kerrProg = p.spin > 0 && p.kerr !== null ? this.kerrProgram() : null;
+    const kerr = kerrProg !== null;
+    const a = kerr ? spinLength(p.spin) : 0;
+    const rIn = kerr ? iscoRadius(a) : R_ISCO;
+    const rH = kerr ? horizonRadius(a) : 1;
+    const ph = photonOrbitRadii(a);
+
     // 1. Ray-traced scene.
     this.bindTarget(scene);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.lut);
-    this.scene
-      .use()
+    const prog = kerrProg ?? this.scene;
+    prog.use();
+    if (kerr && p.kerr) {
+      const k = p.kerr;
+      prog
+        .set('u_spin', a)
+        .set('u_rH', rH)
+        .set('u_kPos', k.pos)
+        .set('u_kU', k.U)
+        .set('u_kR', k.R)
+        .set('u_kUp', k.Up)
+        .set('u_kF', k.F)
+        .set('u_obsLapse2', k.lapse2)
+        .set('u_hK', p.quality.kerrH);
+    }
+    prog
+      .set('u_rIn', rIn)
+      .set('u_rCapture', rH)
+      // Same accretion rate at every spin: flux relative to the a = 0 disk's peak.
+      .set('u_fluxNorm', 1 / diskFluxShapeFor(DISK_PEAK_RADIUS, R_ISCO))
+      .set('u_guideR', [rH, ph.prograde, a > 0 ? ph.retrograde : -10, rIn])
       .set('u_camPos', cam.pos)
       .set('u_camRight', cam.right)
       .set('u_camUp', cam.up)
       .set('u_camForward', cam.forward)
       .set('u_tan', [cam.tanX, cam.tanY])
       .set('u_time', p.time)
-      .set('u_maxSteps', p.quality.maxSteps)
+      .set('u_maxSteps', kerr ? p.quality.kerrSteps : p.quality.maxSteps)
       .set('u_hBase', p.quality.hBase)
       .set('u_eps', p.quality.eps)
       .set('u_octaves', p.quality.octaves)
@@ -203,7 +267,10 @@ export class Renderer {
       .set('u_camRight', cam.right)
       .set('u_camUp', cam.up)
       .set('u_tan', [cam.tanX, cam.tanY])
-      .set('u_shadowAngle', p.shadowAngle ?? -1)
+      .set('u_shadowAngle', p.shadowCurve ? -1 : (p.shadowAngle ?? -1))
+      .set('u_curveOn', p.shadowCurve !== null)
+      .set('u_curveC', p.shadowCurve?.center ?? [0, 0])
+      .set('u_curveR[0]', p.shadowCurve?.radii ?? new Array<number>(CURVE_SAMPLES).fill(0))
       .set('u_split', p.split ?? 2)
       .set('u_time', p.time);
     this.draw();

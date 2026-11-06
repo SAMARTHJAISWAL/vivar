@@ -12,6 +12,7 @@ describe('URL hash state', () => {
       azimuth: 123.4,
       inclination: 12.5,
       distance: 41.25,
+      spin: 0.75,
       temperature: 9000,
       exposure: -1.25,
       quality: 'ultra',
@@ -57,5 +58,17 @@ describe('URL hash state', () => {
   it('decodes display options', () => {
     expect(decodeDisplay('#ui=0&debug=1')).toEqual({ hideUi: true, debug: true });
     expect(decodeDisplay('')).toEqual({ hideUi: false, debug: false });
+  });
+
+  it('encodes the spin and clamps it to [0, 0.998]', () => {
+    const s = { ...defaultState(), spin: 0.99 };
+    const h = encodeState(s);
+    expect(h).toContain('spin=0.990');
+    expect(decodeState(h, defaultState()).spin).toBe(0.99);
+    expect(decodeState('#spin=1.5', defaultState()).spin).toBe(0.998);
+    expect(decodeState('#spin=-1', defaultState()).spin).toBe(0);
+    expect(decodeState('#spin=abc', defaultState()).spin).toBe(0);
+    // Old links without a spin key keep the non-spinning hole.
+    expect(decodeState('#az=10&inc=80&r=20', defaultState()).spin).toBe(0);
   });
 });

@@ -65,7 +65,8 @@ export class Program {
     const v = typeof value === 'boolean' ? (value ? 1 : 0) : value;
     switch (type) {
       case gl.FLOAT:
-        gl.uniform1f(loc, v as number);
+        if (typeof v === 'number') gl.uniform1f(loc, v);
+        else gl.uniform1fv(loc, v as number[]);
         break;
       case gl.INT:
       case gl.BOOL:
@@ -77,6 +78,9 @@ export class Program {
         break;
       case gl.FLOAT_VEC3:
         gl.uniform3fv(loc, v as number[]);
+        break;
+      case gl.FLOAT_VEC4:
+        gl.uniform4fv(loc, v as number[]);
         break;
       default:
         throw new GLError(`unsupported uniform type for ${name}`);

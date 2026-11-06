@@ -2,11 +2,11 @@
  * Viewer state and its URL-hash encoding.
  *
  * The hash is a short, human-readable query string, e.g.
- *   #az=34.0&inc=80.0&r=26.0&t=6500&ev=0.00&q=high&fx=dop,grav,lens,disk&anim=1&orbit=0
+ *   #az=34.0&inc=80.0&r=26.0&spin=0.000&t=6500&ev=0.00&q=high&fx=dop,grav,lens,disk&anim=1&orbit=0
  * Unknown keys are ignored and out-of-range values are clamped, so any hash
  * (including hand-edited or truncated ones) decodes to a valid state.
  */
-import { CAM_DIST_MAX, CAM_DIST_MIN } from './physics/constants';
+import { CAM_DIST_MAX, CAM_DIST_MIN, SPIN_MAX } from './physics/constants';
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high', 'ultra'];
@@ -18,6 +18,8 @@ export interface ViewState {
   inclination: number;
   /** Camera distance from the centre, in r_s. */
   distance: number;
+  /** Dimensionless spin χ = a/M of the hole, 0 (Schwarzschild) to SPIN_MAX. */
+  spin: number;
   /** Peak disk temperature in kelvin. */
   temperature: number;
   /** Exposure in stops (EV). */
@@ -47,6 +49,7 @@ export function defaultState(reducedMotion = false): ViewState {
     azimuth: 30,
     inclination: 84,
     distance: 24,
+    spin: 0,
     temperature: 4500,
     exposure: 0,
     quality: 'high',
@@ -84,6 +87,7 @@ export function encodeState(s: ViewState): string {
     `az=${wrapDegrees(s.azimuth).toFixed(1)}`,
     `inc=${s.inclination.toFixed(1)}`,
     `r=${s.distance.toFixed(2)}`,
+    `spin=${s.spin.toFixed(3)}`,
     `t=${Math.round(s.temperature)}`,
     `ev=${s.exposure.toFixed(2)}`,
     `q=${s.quality}`,
@@ -111,6 +115,8 @@ export function decodeState(hash: string, base: ViewState): ViewState {
   if (inc !== undefined) s.inclination = clamp(inc, INCLINATION_MIN, INCLINATION_MAX);
   const r = num(params, 'r');
   if (r !== undefined) s.distance = clamp(r, CAM_DIST_MIN, CAM_DIST_MAX);
+  const spin = num(params, 'spin');
+  if (spin !== undefined) s.spin = clamp(spin, 0, SPIN_MAX);
   const t = num(params, 't');
   if (t !== undefined) s.temperature = clamp(t, TEMP_MIN, TEMP_MAX);
   const ev = num(params, 'ev');

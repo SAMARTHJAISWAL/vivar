@@ -6,12 +6,12 @@
     <title>vivar · a black hole, ray-traced live</title>
     <meta
       name="description"
-      content="A real-time, physically based Schwarzschild black-hole renderer in WebGL2. Every pixel traces a light ray through curved spacetime."
+      content="A real-time, physically based black-hole renderer in WebGL2, non-spinning (Schwarzschild) or spinning (Kerr). Every pixel traces a light ray through curved spacetime."
     />
     <meta name="theme-color" content="#04050a" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta property="og:title" content="vivar · कृष्ण विवर" />
-    <meta property="og:description" content="A Schwarzschild black hole ray-traced live in your browser: lensing, photon ring, Doppler beaming and gravitational redshift." />
+    <meta property="og:description" content="A black hole ray-traced live in your browser, with or without spin: lensing, the photon ring, frame dragging, Doppler beaming and gravitational redshift." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://samarthjaiswal.github.io/vivar/" />
     <meta property="og:image" content="https://samarthjaiswal.github.io/vivar/og.png" />
@@ -26,12 +26,12 @@
 
     <header class="brand">
       <h1><a class="brand-link" href="https://github.com/SAMARTHJAISWAL/vivar" title="vivar on GitHub: source and physics notes"><span class="name">vivar</span> <span class="deva" lang="hi">कृष्ण विवर</span><span class="visually-hidden"> (source on GitHub)</span></a></h1>
-      <p class="tag">A Schwarzschild black hole, ray-traced live</p>
+      <p class="tag" id="tag">A Schwarzschild black hole, ray-traced live</p>
     </header>
 
-    <div id="hud" aria-live="off">
-      <span id="fps">–</span>
-    </div>
+    <button id="hud" type="button" aria-expanded="false" aria-label="Frame rate; press for render details"><span id="fps">…</span><span id="fps-more"></span></button>
+
+    <div id="hint" aria-hidden="true" hidden></div>
 
     <aside id="panel" aria-label="Controls">
       <button id="panel-toggle" class="panel-toggle" aria-expanded="true" aria-controls="panel-body">
@@ -47,6 +47,7 @@
             <button data-preset="face">Face-on</button>
             <button data-preset="flyin">Fly-in</button>
             <button data-preset="einstein">Einstein ring</button>
+            <button data-preset="spinning">Spinning (a = 0.99)</button>
           </div>
           <label class="slider">
             <span class="row"><span>Inclination</span><output id="out-inclination"></output></span>
@@ -61,13 +62,17 @@
 
         <section>
           <h2>Physics</h2>
+          <label class="slider">
+            <span class="row"><span>Spin <small>a/M</small></span><output id="out-spin"></output></span>
+            <input type="range" id="spin" min="0" max="0.998" step="0.001" />
+          </label>
           <label class="toggle"><input type="checkbox" id="lensing" /><span class="sw"></span><span>Lensing <small>(GR rays; off = straight lines)</small></span></label>
           <label class="toggle"><input type="checkbox" id="compare" /><span class="sw"></span><span>Split view <small>(GR | straight)</small></span></label>
           <label class="toggle"><input type="checkbox" id="doppler" /><span class="sw"></span><span>Doppler beaming</span></label>
           <label class="toggle"><input type="checkbox" id="gravRedshift" /><span class="sw"></span><span>Gravitational redshift</span></label>
           <label class="toggle"><input type="checkbox" id="disk" /><span class="sw"></span><span>Accretion disk</span></label>
           <label class="toggle"><input type="checkbox" id="animate" /><span class="sw"></span><span>Animate disk</span></label>
-          <label class="toggle"><input type="checkbox" id="guides" /><span class="sw"></span><span>Guides <small>(horizon, photon sphere, ISCO, b<sub>c</sub>)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="guides" /><span class="sw"></span><span>Guides <small class="s0">(horizon, photon sphere, ISCO, b<sub>c</sub>)</small><small class="s1">(horizon, photon orbits, ISCO, shadow edge)</small></span></label>
         </section>
 
         <section>
@@ -109,9 +114,12 @@
       </div>
       <ol>
         <li data-feature="shadow">
-          <b>The shadow.</b> Light aimed inside a critical impact parameter
+          <span class="s0"><b>The shadow.</b> Light aimed inside a critical impact parameter
           b<sub>c</sub> = (3√3/2) r<sub>s</sub> ≈ 2.6 r<sub>s</sub> spirals into the horizon. The dark disc is
-          2.6× wider than the horizon itself because gravity bends rays into it.
+          2.6× wider than the horizon itself because gravity bends rays into it.</span>
+          <span class="s1"><b>The D-shaped shadow.</b> A spinning hole drags spacetime around with it (frame dragging).
+          Light orbiting with the spin can skim closer before it is lost, light orbiting against it is captured further out,
+          so the shadow is flattened on the side turning towards you and shifted the other way.</span>
         </li>
         <li data-feature="ring">
           <b>The photon ring.</b> Rays that just miss b<sub>c</sub> loop around the hole once or more before escaping.
@@ -126,15 +134,18 @@
           disk as a thinner arc hugging the shadow from below. Rays that cross the disk plane more than once add up here.
         </li>
         <li data-feature="doppler">
-          <b>Doppler beaming.</b> Gas near the inner edge orbits at up to half the speed of light. The side moving towards you
+          <b>Doppler beaming.</b> Gas near the inner edge orbits at <span class="s0">up to half</span><span class="s1">a large fraction of</span> the speed of light. The side moving towards you
           is blueshifted and beamed (intensity ∝ g⁴), the receding side is dimmed and reddened. Toggle it to compare.
         </li>
         <li data-feature="isco">
-          <b>The ISCO.</b> Below 3 r<sub>s</sub> no stable circular orbit exists, so the disk ends there and gas plunges in.
-          Light from the inner disk is also redshifted by gravity: it climbs out of a deep potential well.
+          <span class="s0"><b>The ISCO.</b> Below 3 r<sub>s</sub> no stable circular orbit exists, so the disk ends there and gas plunges in.
+          Light from the inner disk is also redshifted by gravity: it climbs out of a deep potential well.</span>
+          <span class="s1"><b>The ISCO moves in.</b> For gas orbiting with the spin, the innermost stable orbit is at
+          <span id="isco-value">3 r_s</span> instead of 3 r<sub>s</sub>, so the disk reaches deeper, runs hotter there, and its
+          inner light is strongly redshifted.</span>
         </li>
       </ol>
-      <p class="note">Numbers are placed by tracing the same rays on the CPU. Turn on <i>Guides</i> to see the horizon, photon sphere and ISCO circles, and the predicted shadow edge (dashed).</p>
+      <p class="note">Numbers are placed by tracing the same rays on the CPU. Turn on <i>Guides</i> to see the horizon, <span class="s0">photon sphere</span><span class="s1">equatorial photon orbits</span> and ISCO circles, and the predicted shadow edge (dashed).</p>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>

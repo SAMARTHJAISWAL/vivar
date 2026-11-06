@@ -64,8 +64,13 @@ export const BEAMING_EXPONENT = 4;
 
 /** Novikov–Thorne-like radial flux shape r⁻³ (1 − √(r_in/r)), zero at the inner edge. */
 export function diskFluxShape(r: number): number {
-  if (r <= DISK_INNER) return 0;
-  return (1 - Math.sqrt(DISK_INNER / r)) / (r * r * r);
+  return diskFluxShapeFor(r, DISK_INNER);
+}
+
+/** The same flux shape for a disk with inner edge rIn (the Kerr ISCO for a spinning hole). */
+export function diskFluxShapeFor(r: number, rIn: number): number {
+  if (r <= rIn) return 0;
+  return (1 - Math.sqrt(rIn / r)) / (r * r * r);
 }
 
 /** Local effective temperature, T ∝ F^{1/4}, scaled so the peak equals tPeak. */

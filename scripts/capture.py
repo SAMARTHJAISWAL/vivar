@@ -32,6 +32,8 @@ SHOTS = [
     ('split', 'az=30&inc=80&r=24&t=4500&ev=0&q=ultra&fx=dop,grav,lens,disk,split&anim=0&ui=0', (1200, 675), 'docs/lensing-split.png'),
     ('ring', 'az=33.4&inc=100.4&r=22&t=4500&ev=0&q=ultra&fx=dop,grav,lens&anim=0&ui=0', (1200, 675), 'docs/einstein-ring.png'),
     ('nodop', 'az=30&inc=84&r=22&t=4500&ev=0&q=ultra&fx=lens,disk&anim=0&ui=0', (1200, 675), 'docs/no-redshift.png'),
+    ('kerr', 'az=30&inc=82&r=22&spin=0.99&t=4500&ev=-1.25&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 675), 'docs/kerr.png'),
+    ('kerrguide', 'az=30&inc=89.5&r=20&spin=0.99&t=4500&ev=-1.25&q=ultra&fx=dop,grav,lens,disk,guides&anim=0&ui=0', (1200, 675), 'docs/kerr-guides.png'),
     ('og', 'az=30&inc=84&r=21&t=4500&ev=0.2&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 630), 'public/og.png'),
     ('fallback', 'az=30&inc=84&r=22&t=4500&ev=0&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 675), 'public/fallback.jpg'),
 ]
@@ -41,8 +43,15 @@ def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=ARGS, channel='chromium')
         errors: list[str] = []
+
+        def new_page(**kw):
+            ctx = browser.new_context(**kw)
+            # Skip the first-visit hint ("drag to orbit") in every capture.
+            ctx.add_init_script("try { localStorage.setItem('vivar.hinted', '1') } catch (e) {}")
+            return ctx.new_page()
+
         for name, h, (w, hgt), out in SHOTS:
-            page = browser.new_page(viewport={'width': w, 'height': hgt}, device_scale_factor=1)
+            page = new_page(viewport={'width': w, 'height': hgt}, device_scale_factor=1)
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.goto(f'{BASE}#{h}')
             page.wait_for_function('window.__vivar && window.__vivar.stats.frames > 0', timeout=60000)
@@ -58,7 +67,7 @@ def main() -> None:
             page.close()
 
         # UI screenshot with the explainer open.
-        page = browser.new_page(viewport={'width': 1440, 'height': 860}, device_scale_factor=1)
+        page = new_page(viewport={'width': 1440, 'height': 860}, device_scale_factor=1)
         page.goto(f'{BASE}#az=30&inc=84&r=24&t=4500&ev=0&q=high&fx=dop,grav,lens,disk&anim=0')
         page.wait_for_function('window.__vivar && window.__vivar.stats.frames > 0', timeout=60000)
         page.evaluate('window.__vivar.setTime(120)')

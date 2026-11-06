@@ -30,3 +30,15 @@ describe('feature locator for the explainer overlay', () => {
     }
   });
 });
+
+describe('feature locator for a spinning hole', () => {
+  it('finds every feature, with the approaching side left and the shadow shifted right', async () => {
+    const { kerrCamera, spinLength } = await import('../src/physics/kerr');
+    const cam = makeCamera(30, 82, 22, 16 / 9);
+    const f = locateFeatures(cam, true, 56, 34, kerrCamera(30, 82, 22, spinLength(0.99)));
+    for (const k of ['shadow', 'ring', 'over', 'under', 'doppler', 'isco'] as const) expect(f[k], k).toBeDefined();
+    expect(f.doppler![0]).toBeLessThan(0);
+    expect(f.shadow![0]).toBeGreaterThan(0);
+    expect(f.over![1]).toBeGreaterThan(0);
+  });
+});

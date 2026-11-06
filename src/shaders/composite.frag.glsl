@@ -18,6 +18,9 @@ uniform vec3 u_camUp;
 uniform vec2 u_tan;
 uniform float u_shadowAngle;   // predicted shadow angular radius, radians (<0 hides)
 uniform float u_split;         // NDC x of split line (> 1 hides)
+uniform bool u_curveOn;        // draw the predicted Kerr shadow edge
+uniform vec2 u_curveC;         // its centre, canvas px
+uniform float u_curveR[96];    // its radius at 96 equally spaced angles, canvas px
 uniform float u_time;
 
 // Krzysztof Narkowicz's fit of the ACES filmic curve (2016).
@@ -46,6 +49,18 @@ void main() {
     float pix = 2.0 * u_tan.y / u_resolution.y;          // approx. radians per pixel near the centre
     float line = 1.0 - smoothstep(0.6 * pix, 1.6 * pix, abs(ang - u_shadowAngle));
     float around = atan(dot(dir, u_camUp), dot(dir, u_camRight));
+    float dash = step(0.5, fract(around * 18.0 / PI));
+    c = mix(c, vec3(0.92, 0.95, 1.0), line * dash * 0.85);
+  }
+  if (u_curveOn) {
+    // Star-shaped curve r(angle) around u_curveC, linearly interpolated.
+    vec2 d = gl_FragCoord.xy - u_curveC;
+    float around = atan(d.y, d.x);
+    float x = (around / (2.0 * PI) + 0.5) * 96.0;
+    int i0 = int(floor(x)) % 96;
+    int i1 = (i0 + 1) % 96;
+    float rad = mix(u_curveR[i0], u_curveR[i1], fract(x));
+    float line = 1.0 - smoothstep(0.6, 1.6, abs(length(d) - rad));
     float dash = step(0.5, fract(around * 18.0 / PI));
     c = mix(c, vec3(0.92, 0.95, 1.0), line * dash * 0.85);
   }

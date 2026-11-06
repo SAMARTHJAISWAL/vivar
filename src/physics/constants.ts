@@ -47,6 +47,15 @@ export const R_ESCAPE = 100.0 * R_S;
 export const CAM_DIST_MIN = 5.0;
 export const CAM_DIST_MAX = 60.0;
 
+/** Largest spin χ = a/M the UI allows (Thorne's 1974 limit for a hole spun up by a disk). */
+export const SPIN_MAX = 0.998;
+
+/** Kerr tracer: the affine step is Δλ = h (r − K_HORIZON r₊) / |dx/dλ|. */
+export const K_HORIZON = 0.5;
+
+/** Kerr tracer: a ray counts as captured once r < r₊ + CAPTURE_MARGIN. */
+export const CAPTURE_MARGIN = 2.0e-3;
+
 /** Hard upper bound on integration steps compiled into the shader loop. */
 export const MAX_STEPS_HARD = 640;
 
@@ -78,6 +87,7 @@ function normalize3(v: [number, number, number]): [number, number, number] {
 /** Values injected into the shader. Keys become `#define` names. */
 export const SHADER_CONSTANTS = {
   R_S,
+  MASS,
   R_PHOTON,
   R_ISCO,
   B_CRIT,
@@ -87,6 +97,8 @@ export const SHADER_CONSTANTS = {
   R_ESCAPE,
   MAX_STEPS_HARD,
   H_MIN,
+  K_HORIZON,
+  CAPTURE_MARGIN,
   FLOW_PERIOD,
   LUT_T_MIN,
   LUT_T_MAX,
@@ -104,9 +116,21 @@ function glslFloat(x: number): string {
   return s.includes('.') || s.includes('e') ? s : `${s}.0`;
 }
 
+/**
+ * Compile-time variants of the scene shader. `KERR` selects the spinning-hole
+ * tracer; with KERR 0 the shader is exactly the Schwarzschild one.
+ */
+export interface ShaderVariant {
+  kerr?: boolean;
+}
+
+/** Names the generated block defines besides the shared constants. */
+export const VARIANT_DEFINES = ['KERR'] as const;
+
 /** GLSL source for the shared constants (one `#define` per line). */
-export function glslDefines(): string {
+export function glslDefines(variant: ShaderVariant = {}): string {
   const lines: string[] = ['// ---- generated from src/physics/constants.ts; do not edit ----'];
+  lines.push(`#define KERR ${variant.kerr ? 1 : 0}`);
   for (const [name, value] of Object.entries(SHADER_CONSTANTS)) {
     lines.push(name === 'MAX_STEPS_HARD' ? `#define ${name} ${value}` : `#define ${name} ${glslFloat(value)}`);
   }
@@ -118,8 +142,8 @@ export function glslDefines(): string {
 }
 
 /** Splice the generated constants into a shader that contains the `//#include constants` marker. */
-export function injectConstants(source: string): string {
+export function injectConstants(source: string, variant: ShaderVariant = {}): string {
   const marker = '//#include constants';
   if (!source.includes(marker)) throw new Error('shader source is missing the constants marker');
-  return source.replace(marker, glslDefines());
+  return source.replace(marker, glslDefines(variant));
 }

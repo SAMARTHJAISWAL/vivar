@@ -1,7 +1,9 @@
 #version 300 es
 // 13-tap downsample (Jimenez, "Next Generation Post Processing in Call of
 // Duty: Advanced Warfare", SIGGRAPH 2014). On the first pass it also applies a
-// soft brightness threshold and a Karis average to suppress fireflies.
+// soft brightness threshold and a Karis average to suppress fireflies, and
+// clamps the source at BLOOM_CAP (linear) so a very hot inner disk (high spin)
+// does not flood the shadow with glare. The non-spinning disk stays below it.
 precision highp float;
 in vec2 v_uv;
 out vec4 outColor;
@@ -21,7 +23,13 @@ vec3 prefilter(vec3 c) {
 
 float karis(vec3 c) { return 1.0 / (1.0 + max(c.r, max(c.g, c.b))); }
 
-vec3 tap(vec2 o) { return texture(u_src, v_uv + o * u_texel).rgb; }
+const float BLOOM_CAP = 8.0;
+
+vec3 tap(vec2 o) {
+  vec3 c = texture(u_src, v_uv + o * u_texel).rgb;
+  if (u_prefilter) c *= min(1.0, BLOOM_CAP / max(max(c.r, max(c.g, c.b)), 1e-5));
+  return c;
+}
 
 void main() {
   vec3 a = tap(vec2(-2, 2)), b = tap(vec2(0, 2)), c = tap(vec2(2, 2));

@@ -3,8 +3,10 @@ import { AdaptiveScale } from './adaptive';
 import { locateFeatures, type FeatureId } from './annotations';
 import { makeCamera, shadowAngularRadius, type Camera } from './physics/camera';
 import { CAM_DIST_MAX, CAM_DIST_MIN, GALAXY_DIR, TIME_SCALE } from './physics/constants';
+import { iscoRadius, kerrCamera, shadowCurveScreen, spinLength, type KerrCamera } from './physics/kerr';
+import { curveOverlay } from './overlay';
 import { QUALITY_SETTINGS } from './quality';
-import { Renderer, type FrameParams } from './renderer';
+import { Renderer, type FrameParams, type ShadowOverlay } from './renderer';
 import {
   decodeDisplay,
   decodeState,
@@ -75,6 +77,7 @@ function start(renderer: Renderer): void {
   const sliders = {
     inclination: { fmt: (v: number) => `${v.toFixed(1)}°` },
     distance: { fmt: (v: number) => `${v.toFixed(1)} r<sub>s</sub>` },
+    spin: { fmt: (v: number) => (v === 0 ? '0 <small>(Schwarzschild)</small>' : v.toFixed(3)) },
     temperature: { fmt: (v: number) => `${Math.round(v).toLocaleString('en-US')} K` },
     exposure: { fmt: (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)} EV` },
   } as const;
@@ -91,11 +94,24 @@ function start(renderer: Renderer): void {
       $(`out-${k}`).innerHTML = sliders[k].fmt(state[k]);
     }
     for (const r of document.querySelectorAll<HTMLInputElement>('input[name="quality"]')) r.checked = r.value === state.quality;
+    syncSpinText();
+  }
+
+  // Text that depends on the spin: tagline, explainer entries, guide legend.
+  const tag = $('tag');
+  const iscoOut = $('isco-value');
+  function syncSpinText(): void {
+    const spinning = state.spin > 0;
+    document.body.classList.toggle('spinning', spinning);
+    tag.textContent = spinning ? `A spinning (Kerr) black hole, a/M = ${state.spin.toFixed(2)}, ray-traced live` : 'A Schwarzschild black hole, ray-traced live';
+    const rIsco = iscoRadius(spinLength(state.spin));
+    iscoOut.innerHTML = `${rIsco.toFixed(2)} r<sub>s</sub> (${(2 * rIsco).toFixed(2)} M)`;
   }
 
   let hashTimer = 0;
   function changed(opts: { ui?: boolean } = {}): void {
     dirty = true;
+    updateBounds();
     if (opts.ui !== false) syncUi();
     window.clearTimeout(hashTimer);
     hashTimer = window.setTimeout(() => history.replaceState(null, '', encodeState(state) + displaySuffix()), 250);
@@ -106,10 +122,19 @@ function start(renderer: Renderer): void {
     return (display.hideUi ? '&ui=0' : '') + (display.debug ? '&debug=1' : '');
   }
 
+  // The Kerr tracer costs about 2.5x the Schwarzschild one, so it may drop a little further in resolution.
+  let boundsKey = '';
   function setQuality(q: Quality): void {
     state.quality = q;
     quality = QUALITY_SETTINGS[q];
-    adaptive.setBounds(quality.minScale, quality.maxScale);
+    updateBounds();
+  }
+  function updateBounds(): void {
+    const kerr = state.spin > 0 && state.lensing;
+    const key = `${state.quality}:${kerr}`;
+    if (key === boundsKey) return;
+    boundsKey = key;
+    adaptive.setBounds(kerr ? quality.kerrMinScale : quality.minScale, quality.maxScale);
   }
 
   // ------------------------------------------------------------ UI → state
@@ -138,7 +163,9 @@ function start(renderer: Renderer): void {
   }
 
   const presets: Record<string, () => void> = {
-    default: () => Object.assign(state, { azimuth: 30, inclination: 84, distance: 24 }),
+    default: () => Object.assign(state, { azimuth: 30, inclination: 84, distance: 24, spin: 0, exposure: 0 }),
+    // The inner disk of a fast-spinning hole runs much hotter (same accretion rate), so expose for it.
+    spinning: () => Object.assign(state, { azimuth: 30, inclination: 82, distance: 22, spin: 0.99, exposure: -1.25 }),
     edge: () => Object.assign(state, { inclination: 88.5, distance: 24 }),
     face: () => Object.assign(state, { inclination: 4, distance: 24 }),
     einstein: () => {
@@ -217,7 +244,8 @@ function start(renderer: Renderer): void {
     markers.replaceChildren();
     if (explainer.hidden) return;
     const cam = makeCamera(state.azimuth, state.inclination, state.distance, window.innerWidth / window.innerHeight);
-    const pos = locateFeatures(cam, state.lensing && !state.compare);
+    const kerr = state.spin > 0 ? kerrCamera(state.azimuth, state.inclination, state.distance, spinLength(state.spin)) : null;
+    const pos = locateFeatures(cam, state.lensing && !state.compare, 56, 34, kerr);
     order.forEach((id, i) => {
       const p = pos[id];
       const li = explainer.querySelector<HTMLElement>(`li[data-feature="${id}"]`);
@@ -332,12 +360,28 @@ function start(renderer: Renderer): void {
   // ------------------------------------------------------------ frame loop
 
   const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-  const hud = $('fps');
-  let hudTime = 0;
+  const hud = $<HTMLButtonElement>('hud');
+  const hudFps = $('fps');
+  const hudMore = $('fps-more');
+  let lastRender = -1e9;
   let fpsFrames = 0;
   let fpsT0 = performance.now();
 
-  function frameParams(camera: Camera): FrameParams {
+  // The analytic Kerr shadow edge for the guide overlay, recomputed only when its inputs change.
+  let curveKey = '';
+  let curve: ShadowOverlay | null = null;
+  function shadowCurve(camera: Camera, kerr: KerrCamera | null, w: number, h: number): ShadowOverlay | null {
+    if (!kerr || !state.guides || !state.lensing) return null;
+    const key = [kerr.a, kerr.r, kerr.theta, camera.tanX, camera.tanY, w, h].join(',');
+    if (key !== curveKey) {
+      curveKey = key;
+      curve = curveOverlay(shadowCurveScreen(kerr.a, kerr.r, kerr.theta, 600), camera.tanX, camera.tanY, w, h);
+    }
+    return curve;
+  }
+
+  function frameParams(camera: Camera, w: number, h: number): FrameParams {
+    const kerr = state.spin > 0 ? kerrCamera(state.azimuth, state.inclination, state.distance, spinLength(state.spin)) : null;
     return {
       camera,
       quality,
@@ -351,7 +395,10 @@ function start(renderer: Renderer): void {
       guides: state.guides,
       split: state.compare && state.lensing ? 0 : null,
       shadowAngle: state.guides ? (state.lensing ? shadowAngularRadius(state.distance) : Math.asin(1 / state.distance)) : null,
+      shadowCurve: shadowCurve(camera, kerr, w, h),
       debug: display.debug,
+      spin: state.spin,
+      kerr,
     };
   }
 
@@ -392,25 +439,33 @@ function start(renderer: Renderer): void {
     const scale = lockedScale ?? (frameMs < 250 ? adaptive.update(frameMs, now) : adaptive.scale);
     renderer.resize(cw, ch, scale);
     const camera = makeCamera(state.azimuth, state.inclination, state.distance, cw / ch);
-    renderer.render(frameParams(camera));
+    renderer.render(frameParams(camera, cw, ch));
     dirty = false;
+    lastRender = now;
 
     stats.frames++;
     fpsFrames++;
     stats.frameMs = frameMs;
     stats.scale = scale;
     [stats.sceneW, stats.sceneH] = renderer.sceneSize;
-    if (now - fpsT0 > 500) {
-      stats.fps = (fpsFrames * 1000) / (now - fpsT0);
-      fpsFrames = 0;
-      fpsT0 = now;
-    }
-    if (now - hudTime > 500) {
-      hudTime = now;
-      const gpu = stats.gpuMs !== null ? ` · gpu ${stats.gpuMs.toFixed(1)} ms` : '';
-      hud.textContent = `${stats.fps.toFixed(0)} fps · ${stats.sceneW}×${stats.sceneH} (${(scale * 100).toFixed(0)}%) · ${quality.maxSteps} steps${gpu}`;
-    }
   }
+
+  // HUD: a compact frame rate, with the details on hover, focus or click. It is
+  // refreshed on a timer, not from the frame loop, so it also shows when the
+  // renderer is idle (nothing animating, so no frames are drawn).
+  function updateHud(): void {
+    const now = performance.now();
+    if (now - fpsT0 > 0) stats.fps = (fpsFrames * 1000) / (now - fpsT0);
+    fpsFrames = 0;
+    fpsT0 = now;
+    const idle = now - lastRender > 700;
+    hudFps.textContent = idle ? 'idle' : `${stats.fps.toFixed(0)} fps`;
+    const gpu = stats.gpuMs !== null ? ` · gpu ${stats.gpuMs.toFixed(1)} ms` : '';
+    const steps = state.spin > 0 && state.lensing ? `${quality.kerrSteps} Kerr steps` : `${quality.maxSteps} steps`;
+    hudMore.textContent = ` · ${stats.sceneW}×${stats.sceneH} (${(stats.scale * 100).toFixed(0)}%) · ${steps}${gpu}`;
+  }
+  window.setInterval(updateHud, 500);
+  hud.addEventListener('click', () => hud.setAttribute('aria-expanded', String(hud.getAttribute('aria-expanded') !== 'true')));
 
   function resume(): void {
     cancelAnimationFrame(raf);
@@ -462,12 +517,14 @@ function start(renderer: Renderer): void {
         const gl = renderer.gl;
         const camera = makeCamera(state.azimuth, state.inclination, state.distance, canvas.width / canvas.height);
         const px = new Uint8Array(4);
-        renderer.render(frameParams(camera));
+        const params = frameParams(camera, canvas.width, canvas.height);
+        renderer.render(params);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
         const t0 = performance.now();
         for (let i = 0; i < n; i++) {
           diskTime += 0.1;
-          renderer.render(frameParams(camera));
+          params.time = diskTime;
+          renderer.render(params);
         }
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
         return (performance.now() - t0) / n;
@@ -479,7 +536,54 @@ function start(renderer: Renderer): void {
     },
   });
 
+  // First visit: a one-time hint about the controls, which fades away (or just
+  // disappears, with reduced motion) after a few seconds or on first interaction.
+  const hint = $('hint');
+  let hinted = true;
+  try {
+    hinted = localStorage.getItem('vivar.hinted') === '1';
+  } catch {
+    // Storage unavailable (private mode, blocked): show the hint every visit.
+    hinted = false;
+  }
+  if (!hinted && !display.hideUi) {
+    hint.textContent = coarsePointer ? 'drag to orbit · pinch to zoom' : 'drag to orbit · scroll to zoom';
+    hint.hidden = false;
+    let hideTimer = 0;
+    const hide = () => {
+      window.clearTimeout(hideTimer);
+      hint.classList.remove('show');
+      window.setTimeout(() => (hint.hidden = true), reducedMotion ? 0 : 1000);
+      canvas.removeEventListener('pointerdown', hide);
+      canvas.removeEventListener('wheel', hide);
+    };
+    window.setTimeout(() => hint.classList.add('show'), reducedMotion ? 0 : 600);
+    hideTimer = window.setTimeout(hide, 5600);
+    canvas.addEventListener('pointerdown', hide);
+    canvas.addEventListener('wheel', hide, { passive: true });
+    try {
+      localStorage.setItem('vivar.hinted', '1');
+    } catch {
+      // Ignore: the hint will simply show again next time.
+    }
+  }
+
+  // Compile the Kerr shader while idle so the first spin change does not stall.
+  const warm = () => {
+    if (renderer.warmKerr()) return;
+    // Without the Kerr shader the hole stays non-spinning; say so instead of offering a dead control.
+    for (const el of [$<HTMLInputElement>('spin'), document.querySelector<HTMLButtonElement>('[data-preset="spinning"]')]) {
+      if (el) el.disabled = true;
+    }
+    state.spin = 0;
+    changed();
+  };
+  if (state.spin > 0) warm();
+  else if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(warm, { timeout: 4000 });
+  else setTimeout(warm, 2500);
+
   setQuality(state.quality);
   syncUi();
   resume();
+  updateHud();
 }
