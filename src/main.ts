@@ -165,7 +165,7 @@ function start(renderer: Renderer): void {
   const presets: Record<string, () => void> = {
     default: () => Object.assign(state, { azimuth: 30, inclination: 84, distance: 24, spin: 0, exposure: 0 }),
     // The inner disk of a fast-spinning hole runs much hotter (same accretion rate), so expose for it.
-    spinning: () => Object.assign(state, { azimuth: 30, inclination: 82, distance: 22, spin: 0.99, exposure: -1.25 }),
+    spinning: () => Object.assign(state, { azimuth: 30, inclination: 86, distance: 21, spin: 0.99, exposure: -1.25 }),
     edge: () => Object.assign(state, { inclination: 88.5, distance: 24 }),
     face: () => Object.assign(state, { inclination: 4, distance: 24 }),
     einstein: () => {

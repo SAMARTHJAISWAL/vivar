@@ -32,7 +32,7 @@ SHOTS = [
     ('split', 'az=30&inc=80&r=24&t=4500&ev=0&q=ultra&fx=dop,grav,lens,disk,split&anim=0&ui=0', (1200, 675), 'docs/lensing-split.png'),
     ('ring', 'az=33.4&inc=100.4&r=22&t=4500&ev=0&q=ultra&fx=dop,grav,lens&anim=0&ui=0', (1200, 675), 'docs/einstein-ring.png'),
     ('nodop', 'az=30&inc=84&r=22&t=4500&ev=0&q=ultra&fx=lens,disk&anim=0&ui=0', (1200, 675), 'docs/no-redshift.png'),
-    ('kerr', 'az=30&inc=82&r=22&spin=0.99&t=4500&ev=-1.25&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 675), 'docs/kerr.png'),
+    ('kerr', 'az=30&inc=86&r=21&spin=0.99&t=4500&ev=-1.25&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 675), 'docs/kerr.png'),
     ('kerrguide', 'az=30&inc=89.5&r=20&spin=0.99&t=4500&ev=-1.25&q=ultra&fx=dop,grav,lens,disk,guides&anim=0&ui=0', (1200, 675), 'docs/kerr-guides.png'),
     ('og', 'az=30&inc=84&r=21&t=4500&ev=0.2&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 630), 'public/og.png'),
     ('fallback', 'az=30&inc=84&r=22&t=4500&ev=0&q=ultra&fx=dop,grav,lens,disk&anim=0&ui=0', (1200, 675), 'public/fallback.jpg'),
