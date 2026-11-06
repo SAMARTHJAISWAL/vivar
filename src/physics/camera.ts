@@ -15,11 +15,29 @@ export interface Camera {
   tanY: number;
 }
 
-/** Field of view across the shorter screen dimension, degrees (wider on portrait screens). */
+/**
+ * Framing. The scene is wider than it is tall: seen from near the disk plane,
+ * the disk spans about ±36° horizontally from the default distance (its outer
+ * edge, r = 14 r_s seen from 24 r_s, subtends asin(14/24) ≈ 35.7°) but only a
+ * few degrees vertically. So the camera guarantees two things at once:
+ *  - a vertical field of view of at least FOV_DEG (what wide screens get), and
+ *  - a horizontal half-angle of at least FIT_HALF_DEG = 37.5°, enough for the
+ *    whole disk (35.7° plus a little lensing) with a small margin.
+ * On a 16:9 or wider screen the first is the binding one, so landscape framing
+ * is exactly what it always was. On narrower screens (4:3, portrait phones) the
+ * second takes over, so the disk never runs off the sides; a portrait screen
+ * then simply shows more sky above and below.
+ */
 export const FOV_DEG = 52;
-export const FOV_PORTRAIT_DEG = 66;
+export const FIT_HALF_DEG = 37.5;
 
 const DEG = Math.PI / 180;
+
+/** tan of the half field of view along x and y for a viewport aspect ratio (width / height). */
+export function framing(aspect: number): { tanX: number; tanY: number } {
+  const tanX = Math.max(Math.tan((FOV_DEG * DEG) / 2) * aspect, Math.tan(FIT_HALF_DEG * DEG));
+  return { tanX, tanY: tanX / aspect };
+}
 
 /** Camera position for azimuth/inclination (degrees) and distance. The disk axis is +y. */
 export function cameraPosition(azimuthDeg: number, inclinationDeg: number, distance: number): Vec3 {
@@ -28,21 +46,12 @@ export function cameraPosition(azimuthDeg: number, inclinationDeg: number, dista
   return [distance * Math.sin(i) * Math.cos(a), distance * Math.cos(i), distance * Math.sin(i) * Math.sin(a)];
 }
 
-export function makeCamera(
-  azimuthDeg: number,
-  inclinationDeg: number,
-  distance: number,
-  aspect: number,
-  fovDeg = aspect >= 1 ? FOV_DEG : FOV_PORTRAIT_DEG,
-): Camera {
+export function makeCamera(azimuthDeg: number, inclinationDeg: number, distance: number, aspect: number): Camera {
   const pos = cameraPosition(azimuthDeg, inclinationDeg, distance);
   const forward = normalize(scale(pos, -1));
   const right = normalize(cross(forward, [0, 1, 0]));
   const up = cross(right, forward);
-  const t = Math.tan((fovDeg * DEG) / 2);
-  // The FOV applies to the shorter side so portrait phones see the whole disk.
-  const tanX = aspect >= 1 ? t * aspect : t;
-  const tanY = aspect >= 1 ? t : t / aspect;
+  const { tanX, tanY } = framing(aspect);
   return { pos, forward, right, up, tanX, tanY };
 }
 
